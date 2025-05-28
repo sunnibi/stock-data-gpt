@@ -73,3 +73,7 @@ jobs:
           LOG_FILE="logs/${{ github.event.inputs.ticker }}_${TIMESTAMP}.log"
           echo "Running script for ticker=${{ github.event.inputs.ticker }} market=${{ github.event.inputs.market }}" | tee $LOG_FILE
           python get_stock_data.py ${{ github.event.inputs.ticker }} ${{ github.event.inputs.market }} | tee -a $LOG_FILE
+      - name: Debug git status
+        run: |
+        git status
+        ls -l data/kr
