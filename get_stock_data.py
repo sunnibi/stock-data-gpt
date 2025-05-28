@@ -46,10 +46,10 @@ def fetch_stock_data(ticker, market, days=60):
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-
+        os.system(f"touch {path}")
+        
 if __name__ == "__main__":
     ticker = sys.argv[1] if len(sys.argv) > 1 else "TSLA"
     market = sys.argv[2] if len(sys.argv) > 2 else "us"
     fetch_stock_data(ticker, market)
 
- 
