@@ -46,6 +46,7 @@ def fetch_stock_data(ticker, market, days=60):
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
+        f.write("\n")
         os.system(f"touch {path}")
         
 if __name__ == "__main__":
