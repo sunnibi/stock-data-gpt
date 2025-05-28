@@ -52,3 +52,4 @@ if __name__ == "__main__":
     market = sys.argv[2] if len(sys.argv) > 2 else "us"
     fetch_stock_data(ticker, market)
 
+ 
