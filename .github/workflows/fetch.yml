@@ -4,20 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       ticker:
-        description: "Stock ticker (e.g. TSLA, 005930). For KRX, provide code without .KS/.KQ"
+        description: "Stock ticker (e.g. TSLA, 005930). For KRX, provide code without .KS/.KQ suffix"
         required: true
       market:
         description: "Market"
         required: true
-        type: choice
+        type: choice # 사용자가 UI에서 US 또는 KR만 선택 가능
         options:
           - US
           - KR
         default: "US"
       num_days:
         description: "Number of days for historical data if no prior data exists (e.g., 60)"
-        required: false
-        default: "60" # Default lookback period
+        required: false # 필수가 아니며, 입력하지 않으면 기본값 사용
+        default: "60" # 기본 조회 기간 60일
 
 jobs:
   fetch_and_commit:
@@ -29,18 +29,22 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11' # Or your preferred Python version
+          python-version: '3.11' # 또는 선호하는 Python 버전 (예: '3.9', '3.10')
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # Fallback if requirements.txt is missing for some reason, or install yfinance directly
-          # pip install yfinance 
+          if [ -f requirements.txt ]; then 
+            pip install -r requirements.txt
+          else
+            echo "requirements.txt not found. Please ensure yfinance is installed if not listed."
+            # 비상시 직접 설치 (requirements.txt 사용 권장)
+            # pip install yfinance 
+          fi
 
       - name: Run get_stock_data.py with inputs
         run: |
-          echo "Running script for ticker=${{ github.event.inputs.ticker }}, market=${{ github.event.inputs.market }}, days=${{ github.event.inputs.num_days }}"
+          echo "Running script for ticker: ${{ github.event.inputs.ticker }}, market: ${{ github.event.inputs.market }}, days: ${{ github.event.inputs.num_days }}"
           python get_stock_data.py "${{ github.event.inputs.ticker }}" "${{ github.event.inputs.market }}" "${{ github.event.inputs.num_days }}"
 
       - name: Commit and Push data
@@ -48,25 +52,23 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Pull latest changes from the branch the workflow is running on
-          # (Usually main, but can be different if triggered on another branch)
+          # 워크플로우가 실행된 브랜치(보통 main)의 최신 변경사항을 가져와서 rebase
+          # 이렇게 하면 다른 곳에서 main에 변경사항이 있었을 경우, 그 위에 현재 변경사항을 쌓게 됩니다.
           git pull origin ${{ github.ref_name }} --rebase 
           
-          git add data/**/*.json # Add all JSON files in data subdirectories
+          git add data/**/*.json # data 폴더 내의 모든 json 파일 추가
           
-          # Check if there are changes to commit
+          # 스테이징된 변경사항이 있을 때만 커밋 및 푸시
           if git diff --staged --quiet; then
-            echo "No changes to commit."
+            echo "No new data or changes to commit."
           else
             git commit -m "📈 Update stock data for ${{ github.event.inputs.ticker }} (${{ github.event.inputs.market }})"
+            # 현재 워크플로우가 실행된 브랜치로 푸시
             git push origin ${{ github.ref_name }}
             echo "Changes committed and pushed."
           fi
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-     - name: Run get_stock_data.py with inputs
-        run: |
-          mkdir -p logs
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # GitHub Actions가 자동으로 생성하는 토큰
           TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
           LOG_FILE="logs/${{ github.event.inputs.ticker }}_${TIMESTAMP}.log"
           echo "Running script for ticker=${{ github.event.inputs.ticker }} market=${{ github.event.inputs.market }}" | tee $LOG_FILE
