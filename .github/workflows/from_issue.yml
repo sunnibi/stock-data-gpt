@@ -68,3 +68,11 @@ jobs:
     git add -A
     git commit -m "🆕 Add/Update ${{ steps.extract.outputs.TICKER }} and T.JSON" || echo "No changes to commit"
     git push
+
+# JSON 저장
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(output, f, ensure_ascii=False, indent=2)
+
+# 강제 변경 유도
+with open(path, "a", encoding="utf-8") as f:
+    f.write("\n")
