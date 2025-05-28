@@ -1,0 +1,39 @@
+name: Collect Stock from Issue
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  run-if-new-ticker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install yfinance
+
+      - name: Extract ticker from issue
+        id: extract
+        run: |
+          echo "TICKER=$(echo '${{ github.event.issue.body }}' | grep -i '티커' | head -n 1 | cut -d ':' -f2 | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+
+      - name: Run script for new ticker
+        run: |
+          echo "Fetching ${{ steps.extract.outputs.TICKER }}"
+          python get_stock_data.py ${{ steps.extract.outputs.TICKER }}
+
+      - name: Commit and push
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'actions@github.com'
+          git add data/
+          git commit -m "🆕 Add/Update data for ${{ steps.extract.outputs.TICKER }}"
+          git push
