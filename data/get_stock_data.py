@@ -21,10 +21,13 @@ def fetch_stock_data(ticker, market, days=60):
     ]
 
     # 저장 경로 설정
+    #folder = f"data/{market.lower()}"
+    #os.makedirs(folder, exist_ok=True)
+    #path = f"{folder}/{ticker.replace('.KS','')}.json"
     folder = f"data/{market.lower()}"
-    os.makedirs(folder, exist_ok=True)
+    os.makedirs(folder, exist_ok=True)  # 폴더 없으면 생성
     path = f"{folder}/{ticker.replace('.KS','')}.json"
-
+    
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             existing = json.load(f)
