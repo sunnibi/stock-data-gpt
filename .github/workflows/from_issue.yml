@@ -45,8 +45,9 @@ jobs:
   run: |
     git config --global user.name 'github-actions[bot]'
     git config --global user.email 'actions@github.com'
-    cd $GITHUB_WORKSPACE  # 🧭 반드시 루트 디렉토리에서 커밋
-    git add -A
+    cd $GITHUB_WORKSPACE
+    git add data/**/*.json
+    git add T.JSON
     git status
     git commit -m "🆕 Add/Update ${{ steps.extract.outputs.TICKER }} and T.JSON" || echo "No changes to commit"
     git push
