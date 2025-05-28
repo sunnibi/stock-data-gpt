@@ -1,4 +1,4 @@
-name: Collect Stock from Issue
+name: Collect Stock from Issue (Market-aware)
 
 on:
   issues:
@@ -20,20 +20,21 @@ jobs:
       - name: Install dependencies
         run: pip install yfinance
 
-      - name: Extract ticker from issue
+      - name: Extract ticker and market from issue
         id: extract
         run: |
-          echo "TICKER=$(echo '${{ github.event.issue.body }}' | grep -i '티커' | head -n 1 | cut -d ':' -f2 | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+          echo "TICKER=$(echo '${{ github.event.issue.body }}' | grep -i '티커' | cut -d ':' -f2 | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+          echo "MARKET=$(echo '${{ github.event.issue.body }}' | grep -i '시장' | cut -d ':' -f2 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Run script for new ticker
         run: |
-          echo "Fetching ${{ steps.extract.outputs.TICKER }}"
-          python get_stock_data.py ${{ steps.extract.outputs.TICKER }}
+          echo "Fetching ${{ steps.extract.outputs.TICKER }} from ${{ steps.extract.outputs.MARKET }}"
+          python get_stock_data.py ${{ steps.extract.outputs.TICKER }} ${{ steps.extract.outputs.MARKET }}
 
       - name: Commit and push
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'actions@github.com'
           git add data/
-          git commit -m "🆕 Add/Update data for ${{ steps.extract.outputs.TICKER }}"
+          git commit -m "🆕 Add/Update ${{ steps.extract.outputs.TICKER }} (${{ steps.extract.outputs.MARKET }})"
           git push
