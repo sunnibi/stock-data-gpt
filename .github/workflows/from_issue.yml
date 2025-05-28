@@ -53,3 +53,9 @@ jobs:
           git add T.JSON
           git commit -m "📌 Update T.JSON index for ${{ steps.extract.outputs.TICKER }}"
           git push
+
+
+- name: Print data folder content
+  run: |
+    echo "== Full data directory structure =="
+    find data
