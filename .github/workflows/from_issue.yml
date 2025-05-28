@@ -41,15 +41,15 @@ jobs:
     echo "== Full data directory structure =="
     find data
 
-- name: Commit and push
+- name: Force commit and push
   run: |
     git config --global user.name 'github-actions[bot]'
     git config --global user.email 'actions@github.com'
-    cd $GITHUB_WORKSPACE
-    git add data/**/*.json
-    git add T.JSON
+    git pull origin main  # 🔥 현 상태 동기화 추가
+    git add -A
     git status
-    git commit -m "🆕 Add/Update ${{ steps.extract.outputs.TICKER }} and T.JSON" || echo "No changes to commit"
+    git diff --cached
+    git commit -m "🆕 Force-add update for ${{ steps.extract.outputs.TICKER }} and T.JSON" || echo "No changes to commit"
     git push
 
                 - name: Update T.JSON
