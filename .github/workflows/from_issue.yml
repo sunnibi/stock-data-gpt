@@ -35,7 +35,11 @@ jobs:
   run: |
     echo "Checking if file was created:"
     ls -l data/${{ steps.extract.outputs.MARKET }}
-
+    
+- name: Print data folder content
+  run: |
+    echo "== Full data directory structure =="
+    find data
 
       - name: Commit and push
         run: |
@@ -53,9 +57,3 @@ jobs:
           git add T.JSON
           git commit -m "📌 Update T.JSON index for ${{ steps.extract.outputs.TICKER }}"
           git push
-
-
-- name: Print data folder content
-  run: |
-    echo "== Full data directory structure =="
-    find data
