@@ -3,111 +3,187 @@ import yfinance as yf
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as DateObject
 
-# --- Script Arguments ---
-if len(sys.argv) < 2:
-    print("Usage: python get_stock_data.py <TICKER_SYMBOL> [MARKET_CODE]")
-    print("Example (US): python get_stock_data.py AAPL US")
-    print("Example (KR): python get_stock_data.py 005930 KR")
-    sys.exit(1)
+# --- Configuration & Constants ---
+ALLOWED_MARKETS = {"US", "KR"}
+DATE_FORMAT = '%Y-%m-%d'
+DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 
-input_ticker = sys.argv[1].upper()
-# 시장 코드가 제공되지 않으면 기본값 'US' 사용
-market = sys.argv[2].upper() if len(sys.argv) > 2 else "US"
+def fetch_stock_data_logic(input_ticker_orig, market_orig, num_days_default=60):
+    input_ticker = input_ticker_orig.upper()
+    market = market_orig.upper()
+    current_processing_time = datetime.now()
 
-# --- Ticker Symbol Determination for yfinance ---
-yfinance_ticker = None
-alternative_yfinance_ticker = None # 한국 시장 재시도용
-is_kr_market_no_suffix = False
+    # 1. Validate market code
+    if market not in ALLOWED_MARKETS:
+        print(f"Error: Invalid market code '{market}'. Allowed markets are: {', '.join(ALLOWED_MARKETS)}")
+        sys.exit(1)
 
-if market == "KR":
-    if input_ticker.endswith((".KS", ".KQ")): # 튜플로 여러 접미사 동시 확인
-        yfinance_ticker = input_ticker
-    else:
-        is_kr_market_no_suffix = True # 한국 시장이며, 사용자가 접미사를 입력하지 않음
-        # KOSPI 종목 코드가 보통 '0' 또는 '1'로 시작하는 경향을 이용한 추론
-        if input_ticker.startswith(("0", "1")): # 튜플로 여러 시작 문자 동시 확인
-            yfinance_ticker = f"{input_ticker}.KS"
-            alternative_yfinance_ticker = f"{input_ticker}.KQ"
+    # 2. Determine yfinance ticker and original ticker for filename
+    yfinance_ticker = None
+    alternative_yfinance_ticker = None
+    is_kr_market_no_suffix = False
+    # 파일명 및 JSON 내 'ticker' 필드에 사용될 접미사 없는 순수 티커
+    base_ticker_for_output = input_ticker.replace(".KS", "").replace(".KQ", "")
+
+
+    if market == "KR":
+        if input_ticker.endswith((".KS", ".KQ")):
+            yfinance_ticker = input_ticker
         else:
-            yfinance_ticker = f"{input_ticker}.KQ"
-            alternative_yfinance_ticker = f"{input_ticker}.KS"
-else: # US 또는 기타 시장
-    yfinance_ticker = input_ticker
+            is_kr_market_no_suffix = True
+            if input_ticker.startswith(("0", "1")):
+                yfinance_ticker = f"{input_ticker}.KS"
+                alternative_yfinance_ticker = f"{input_ticker}.KQ"
+            else:
+                yfinance_ticker = f"{input_ticker}.KQ"
+                alternative_yfinance_ticker = f"{input_ticker}.KS"
+    else: # US or other markets
+        yfinance_ticker = input_ticker
+    
+    if not yfinance_ticker: # Should not happen if logic above is correct
+        print(f"Error: Could not determine yfinance ticker for {input_ticker} ({market})")
+        sys.exit(1)
 
-# --- Data Fetching ---
-df = None
-end_date = datetime.now()
-start_date = end_date - timedelta(days=60) # 최근 60일 데이터
+    # 3. Prepare file path and determine fetch range (for incremental update)
+    folder_path = f"data/{market.lower()}"
+    os.makedirs(folder_path, exist_ok=True)
+    file_path = f"{folder_path}/{base_ticker_for_output}.json"
 
-print(f"Attempting to download data for: {yfinance_ticker} (Market: {market})")
-try:
-    df_temp = yf.download(yfinance_ticker, 
-                          start=start_date.strftime('%Y-%m-%d'), 
-                          end=end_date.strftime('%Y-%m-%d'),
-                          progress=False) # 다운로드 진행 표시 끔
-    if not df_temp.empty:
-        df = df_temp
+    existing_history_map = {} # Date string to price entry map for easy merge
+    start_date_for_fetch = current_processing_time - timedelta(days=num_days_default) # Default full fetch
+
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                existing_data = json.load(f)
+            
+            # Validate basic structure and market match
+            if not isinstance(existing_data, dict) or \
+               existing_data.get("ticker") != base_ticker_for_output or \
+               existing_data.get("market") != market:
+                print(f"Warning: Existing file {file_path} seems to be for a different stock/market or corrupted. Performing full fetch.")
+                # Fallback to full fetch by not modifying start_date_for_fetch or existing_history_map
+            else:
+                temp_existing_history = existing_data.get("history", [])
+                if temp_existing_history: # If there's actual history
+                    # Build a map for efficient lookup and update
+                    for entry in temp_existing_history:
+                        existing_history_map[entry['date']] = entry
+
+                    last_date_str = temp_existing_history[-1]['date'] # Assumes sorted
+                    last_date_dt = datetime.strptime(last_date_str, DATE_FORMAT)
+                    
+                    # Fetch data starting from the day AFTER the last recorded date
+                    start_date_for_fetch = last_date_dt + timedelta(days=1)
+                    
+                    if start_date_for_fetch.date() > current_processing_time.date():
+                        print(f"Data for {base_ticker_for_output} ({market}) is already up to date as of {last_date_str}.")
+                        sys.exit(0) # Exit gracefully, no new data needed
+                    print(f"Existing data found for {base_ticker_for_output}. Last entry: {last_date_str}. Fetching new data from {start_date_for_fetch.strftime(DATE_FORMAT)}.")
+                else: # File exists but no history entries
+                    print(f"Existing file {file_path} found but no history. Performing full fetch for {num_days_default} days.")
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            print(f"Error reading or parsing existing file {file_path}: {e}. Performing full fetch for {num_days_default} days.")
+            existing_history_map = {} # Reset on error
+            # start_date_for_fetch remains the default full fetch duration
     else:
-        print(f"No data found for {yfinance_ticker} (empty DataFrame on first try).")
-except Exception as e:
-    print(f"Failed to download data for {yfinance_ticker} on first try: {e}")
+        print(f"No existing data file found for {base_ticker_for_output}. Performing full fetch for {num_days_default} days.")
 
-# 첫 시도 실패 & 한국 시장 & 사용자가 접미사 없이 티커 입력한 경우 -> 다른 접미사로 재시도
-if df is None and is_kr_market_no_suffix and alternative_yfinance_ticker:
-    print(f"First attempt failed for {input_ticker} ({market}). Trying alternative: {alternative_yfinance_ticker}")
+    # 4. Data Fetching with yfinance (with retry for KR stocks)
+    df = None
+    final_yfinance_ticker_used = yfinance_ticker # Store the ticker that successfully fetches data
+
+    print(f"Attempt 1: Downloading data for {yfinance_ticker} from {start_date_for_fetch.strftime(DATE_FORMAT)} to {current_processing_time.strftime(DATE_FORMAT)}")
     try:
-        df_temp = yf.download(alternative_yfinance_ticker, 
-                              start=start_date.strftime('%Y-%m-%d'), 
-                              end=end_date.strftime('%Y-%m-%d'),
+        df_temp = yf.download(yfinance_ticker, 
+                              start=start_date_for_fetch.strftime(DATE_FORMAT), 
+                              end=current_processing_time.strftime(DATE_FORMAT), # Fetch up to current day
                               progress=False)
         if not df_temp.empty:
             df = df_temp
-            yfinance_ticker = alternative_yfinance_ticker # 성공한 티커로 업데이트
-            print(f"Successfully fetched data with alternative ticker: {yfinance_ticker}")
         else:
-            print(f"No data found for {alternative_yfinance_ticker} (empty DataFrame on second try).")
+            print(f"No data returned for {yfinance_ticker} (empty DataFrame on first try).")
     except Exception as e:
-        print(f"Failed to download data for {alternative_yfinance_ticker} on second try: {e}")
+        print(f"Failed to download data for {yfinance_ticker} on first try: {e}")
 
-# 모든 시도 후에도 데이터가 없는 경우 스크립트 종료
-if df is None or df.empty:
-    print(f"Could not retrieve data for input ticker '{input_ticker}' (Market: {market}) after all attempts.")
-    sys.exit(1) # 오류 코드로 종료
+    if df is None and is_kr_market_no_suffix and alternative_yfinance_ticker:
+        print(f"First attempt failed for KR ticker {input_ticker}. Trying alternative: {alternative_yfinance_ticker}")
+        final_yfinance_ticker_used = alternative_yfinance_ticker
+        print(f"Attempt 2: Downloading data for {alternative_yfinance_ticker} from {start_date_for_fetch.strftime(DATE_FORMAT)} to {current_processing_time.strftime(DATE_FORMAT)}")
+        try:
+            df_temp = yf.download(alternative_yfinance_ticker, 
+                                  start=start_date_for_fetch.strftime(DATE_FORMAT), 
+                                  end=current_processing_time.strftime(DATE_FORMAT),
+                                  progress=False)
+            if not df_temp.empty:
+                df = df_temp
+                print(f"Successfully fetched data with alternative ticker: {alternative_yfinance_ticker}")
+            else:
+                print(f"No data returned for {alternative_yfinance_ticker} (empty DataFrame on second try).")
+        except Exception as e:
+            print(f"Failed to download data for {alternative_yfinance_ticker} on second try: {e}")
 
-print(f"Successfully downloaded data for {yfinance_ticker}.")
+    if df is None or df.empty:
+        print(f"Could not retrieve new data for {base_ticker_for_output} ({market}) after all attempts. Check ticker and market validity or data availability for the period.")
+        # If existing data was loaded, we might choose to save it back without new entries,
+        # or exit with error if the goal is always to fetch new data.
+        # For now, if no NEW data, and existing_history_map is empty, it's a hard fail.
+        if not existing_history_map:
+             sys.exit(1)
+        else: # Only existing data available, no new data fetched
+             print("No new data fetched. Saving existing data if any.")
+             new_prices = [] # Ensure new_prices is empty
+    else:
+        print(f"Successfully downloaded data using {final_yfinance_ticker_used}.")
+        df = df[['Close']].dropna().reset_index()
+        if df.empty:
+            print(f"No 'Close' price data available for {final_yfinance_ticker_used} after processing. Using existing data if any.")
+            new_prices = []
+        else:
+            new_prices = [
+                {"date": row['Date'].strftime(DATE_FORMAT), "close": round(row['Close'], 2)}
+                for _, row in df.iterrows()
+            ]
+    
+    # 5. Merge new data with existing history
+    for price_entry in new_prices:
+        existing_history_map[price_entry['date']] = price_entry
+    
+    combined_history = sorted(list(existing_history_map.values()), key=lambda x: x['date'])
 
-# --- Data Processing ---
-df = df[['Close']].dropna().reset_index()
-if df.empty: # 혹시 모를 Close 데이터 부재 상황 대비
-    print(f"No 'Close' price data available for {yfinance_ticker} after processing.")
-    sys.exit(1)
+    if not combined_history and not new_prices: # Still no history after all attempts
+        print(f"No historical data could be compiled for {base_ticker_for_output}. Aborting file save.")
+        sys.exit(1)
+        
+    # 6. Prepare and save output
+    output_data = {
+        "ticker": base_ticker_for_output,
+        "market": market,
+        "yfinance_ticker_used": final_yfinance_ticker_used, # Record which yfinance ticker was successful
+        "updated": current_processing_time.strftime(DATETIME_FORMAT),
+        "history": combined_history
+    }
 
-prices = [
-    {"date": row['Date'].strftime('%Y-%m-%d'), "close": round(row['Close'], 2)}
-    for _, row in df.iterrows()
-]
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        print(f"Successfully saved data to {file_path}")
+    except Exception as e:
+        print(f"Error writing data to {file_path}: {e}")
+        sys.exit(1)
 
-# --- File Saving ---
-# 파일명은 사용자가 입력한 원본 티커명 기준 (예: 005930)
-folder_path = f"data/{market.lower()}"
-os.makedirs(folder_path, exist_ok=True)
-file_path = f"{folder_path}/{input_ticker}.json"
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python get_stock_data.py <TICKER_SYMBOL> [MARKET_CODE] [NUM_DAYS]")
+        print("Example (US): python get_stock_data.py AAPL US 90")
+        print("Example (KR): python get_stock_data.py 005930 KR") # num_days will use default
+        sys.exit(1)
 
-output_data = {
-    "ticker": input_ticker, # 사용자가 입력한 원본 티커
-    "market": market,       # 사용자가 입력했거나 추론된 시장 코드
-    "yfinance_ticker_used": yfinance_ticker, # 실제 yfinance 호출에 사용된 티커
-    "updated": end_date.strftime('%Y-%m-%d %H:%M:%S'), # 업데이트 시각을 좀 더 정확히
-    "history": prices
-}
-
-try:
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(output_data, f, ensure_ascii=False, indent=2)
-        f.write("\n") # JSON 파일 끝에 개행 추가 (선택 사항)
-    print(f"Successfully saved data to {file_path}")
-except Exception as e:
-    print(f"Error writing data to {file_path}: {e}")
-    sys.exit(1)
+    cli_ticker = sys.argv[1]
+    cli_market = sys.argv[2] if len(sys.argv) > 2 else "US"
+    cli_num_days = int(sys.argv[3]) if len(sys.argv) > 3 else 60
+    
+    fetch_stock_data_logic(cli_ticker, cli_market, cli_num_days)
