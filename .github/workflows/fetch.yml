@@ -1,0 +1,73 @@
+name: Fetch Stock Data Manually
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: "Stock ticker (e.g. TSLA, 005930). For KRX, provide code without .KS/.KQ"
+        required: true
+      market:
+        description: "Market"
+        required: true
+        type: choice
+        options:
+          - US
+          - KR
+        default: "US"
+      num_days:
+        description: "Number of days for historical data if no prior data exists (e.g., 60)"
+        required: false
+        default: "60" # Default lookback period
+
+jobs:
+  fetch_and_commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11' # Or your preferred Python version
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Fallback if requirements.txt is missing for some reason, or install yfinance directly
+          # pip install yfinance 
+
+      - name: Run get_stock_data.py with inputs
+        run: |
+          echo "Running script for ticker=${{ github.event.inputs.ticker }}, market=${{ github.event.inputs.market }}, days=${{ github.event.inputs.num_days }}"
+          python get_stock_data.py "${{ github.event.inputs.ticker }}" "${{ github.event.inputs.market }}" "${{ github.event.inputs.num_days }}"
+
+      - name: Commit and Push data
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Pull latest changes from the branch the workflow is running on
+          # (Usually main, but can be different if triggered on another branch)
+          git pull origin ${{ github.ref_name }} --rebase 
+          
+          git add data/**/*.json # Add all JSON files in data subdirectories
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "📈 Update stock data for ${{ github.event.inputs.ticker }} (${{ github.event.inputs.market }})"
+            git push origin ${{ github.ref_name }}
+            echo "Changes committed and pushed."
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+     - name: Run get_stock_data.py with inputs
+        run: |
+          mkdir -p logs
+          TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+          LOG_FILE="logs/${{ github.event.inputs.ticker }}_${TIMESTAMP}.log"
+          echo "Running script for ticker=${{ github.event.inputs.ticker }} market=${{ github.event.inputs.market }}" | tee $LOG_FILE
+          python get_stock_data.py ${{ github.event.inputs.ticker }} ${{ github.event.inputs.market }} | tee -a $LOG_FILE
