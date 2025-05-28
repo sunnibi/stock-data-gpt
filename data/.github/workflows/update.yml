@@ -1,16 +1,15 @@
-name: Update Stock Data (Every 12h)
+name: Collect Stock from Issue (Market-aware)
 
 on:
-  schedule:
-    - cron: '0 */12 * * *'  # 매 12시간마다 실행
-  workflow_dispatch:  # 수동 실행 버튼도 추가
+  issues:
+    types: [opened]
 
 jobs:
-  build:
+  run-if-new-ticker:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -21,13 +20,21 @@ jobs:
       - name: Install dependencies
         run: pip install yfinance
 
-      - name: Run Python script
-        run: python get_stock_data.py
+      - name: Extract ticker and market from issue
+        id: extract
+        run: |
+          echo "TICKER=$(echo '${{ github.event.issue.body }}' | grep -i '티커' | cut -d ':' -f2 | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+          echo "MARKET=$(echo '${{ github.event.issue.body }}' | grep -i '시장' | cut -d ':' -f2 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
-      - name: Commit and push updated stock data
+      - name: Run script for new ticker
+        run: |
+          echo "Fetching ${{ steps.extract.outputs.TICKER }} from ${{ steps.extract.outputs.MARKET }}"
+          python get_stock_data.py ${{ steps.extract.outputs.TICKER }} ${{ steps.extract.outputs.MARKET }}
+
+      - name: Commit and push
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'actions@github.com'
-          git add data/stock.json
-          git commit -m "🔁 Auto-update stock data"
+          git add data/
+          git commit -m "🆕 Add/Update ${{ steps.extract.outputs.TICKER }} (${{ steps.extract.outputs.MARKET }})"
           git push
