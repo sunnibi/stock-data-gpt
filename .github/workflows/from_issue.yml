@@ -38,3 +38,12 @@ jobs:
           git add data/
           git commit -m "🆕 Add/Update ${{ steps.extract.outputs.TICKER }} (${{ steps.extract.outputs.MARKET }})"
           git push
+
+                - name: Update T.JSON
+        run: python update_t_index.py ${{ steps.extract.outputs.TICKER }} ${{ steps.extract.outputs.MARKET }}
+
+      - name: Commit T.JSON
+        run: |
+          git add T.JSON
+          git commit -m "📌 Update T.JSON index for ${{ steps.extract.outputs.TICKER }}"
+          git push
