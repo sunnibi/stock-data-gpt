@@ -31,6 +31,12 @@ jobs:
           echo "Fetching ${{ steps.extract.outputs.TICKER }} from ${{ steps.extract.outputs.MARKET }}"
           python get_stock_data.py ${{ steps.extract.outputs.TICKER }} ${{ steps.extract.outputs.MARKET }}
 
+- name: Debug file output
+  run: |
+    echo "Checking if file was created:"
+    ls -l data/${{ steps.extract.outputs.MARKET }}
+
+
       - name: Commit and push
         run: |
           git config --global user.name 'github-actions[bot]'
