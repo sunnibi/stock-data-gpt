@@ -41,13 +41,15 @@ jobs:
     echo "== Full data directory structure =="
     find data
 
-      - name: Commit and push
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'actions@github.com'
-          git add data/
-          git commit -m "🆕 Add/Update ${{ steps.extract.outputs.TICKER }} (${{ steps.extract.outputs.MARKET }})"
-          git push
+- name: Commit and push
+  run: |
+    git config --global user.name 'github-actions[bot]'
+    git config --global user.email 'actions@github.com'
+    cd $GITHUB_WORKSPACE  # 🧭 반드시 루트 디렉토리에서 커밋
+    git add -A
+    git status
+    git commit -m "🆕 Add/Update ${{ steps.extract.outputs.TICKER }} and T.JSON" || echo "No changes to commit"
+    git push
 
                 - name: Update T.JSON
         run: python update_t_index.py ${{ steps.extract.outputs.TICKER }} ${{ steps.extract.outputs.MARKET }}
